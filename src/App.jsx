@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { getLessons, saveLesson, saveLessonsBulk, clearLessons } from './db';
+import { useLanguage } from './LanguageContext';
 import './App.css';
 
-// Premium Color Scheme & Icons integrated inside React App
 const MOCK_LESSONS = [
   {
     id: 'lesson_math_3_frac',
@@ -38,20 +38,21 @@ const MOCK_LESSONS = [
 ];
 
 function App() {
+  // Authentication state
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const { currentLang, changeLanguage, t } = useLanguage();
+
+  // Dashboard states
   const [lessons, setLessons] = useState([]);
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncMessage, setSyncMessage] = useState('Local database initialized.');
 
-  // Refresh lesson list from IndexedDB cache
   const refreshLessons = () => {
     getLessons()
       .then((loadedLessons) => {
-        // Sort lessons by scheduled date
         const sorted = loadedLessons.sort((a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate));
         setLessons(sorted);
-        
-        // Retain selection if valid
         if (selectedLesson) {
           const updatedSelected = sorted.find(l => l.id === selectedLesson.id);
           setSelectedLesson(updatedSelected || null);
@@ -63,7 +64,6 @@ function App() {
       });
   };
 
-  // Monitor network status
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -71,16 +71,16 @@ function App() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Initial database load
-    refreshLessons();
+    if (isLoggedIn) {
+      refreshLessons();
+    }
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [isLoggedIn]);
 
-  // Seed mock lesson database locally (AC 1)
   const handleSeedData = () => {
     saveLessonsBulk(MOCK_LESSONS)
       .then(() => {
@@ -93,9 +93,7 @@ function App() {
       });
   };
 
-  // Test Deduplication (AC 3)
   const handleTestDeduplication = () => {
-    // Attempting bulk save of the identical mock lessons
     saveLessonsBulk(MOCK_LESSONS)
       .then(() => {
         setSyncMessage('Bulk sync simulation triggered. Duplicate entry check passed.');
@@ -107,7 +105,6 @@ function App() {
       });
   };
 
-  // Toggle milestone completion (Stores update offline immediately - AC 1)
   const handleToggleMilestone = (lesson, milestoneId) => {
     const updatedMilestones = lesson.milestones.map((m) => {
       if (m.milestoneId === milestoneId) {
@@ -121,7 +118,7 @@ function App() {
       ...lesson,
       milestones: updatedMilestones,
       status: isAllCompleted ? 'completed' : 'planned',
-      syncStatus: 'pending_update' // Flags the changes for remote synchronization
+      syncStatus: 'pending_update'
     };
 
     saveLesson(updatedLesson)
@@ -135,7 +132,6 @@ function App() {
       });
   };
 
-  // Clear local IndexedDB cache
   const handleClearCache = () => {
     clearLessons()
       .then(() => {
@@ -149,17 +145,93 @@ function App() {
       });
   };
 
+  // Mock Login Execution
+  const handleLoginSubmit = (e) => {
+    e.preventDefault();
+    setIsLoggedIn(true);
+  };
+
+  // Render Login Card if not authenticated
+  if (!isLoggedIn) {
+    return (
+      <div className="login-wrapper">
+        <div className="login-card">
+          <div className="login-header">
+            <span className="logo-emoji">🏫</span>
+            <h2>{t.title}</h2>
+            <p className="subtitle">{t.welcome}</p>
+          </div>
+
+          <form onSubmit={handleLoginSubmit} className="login-form">
+            {/* Language Selector Dropdown (AC 1) */}
+            <div className="form-group lang-select-group">
+              <label htmlFor="lang-select">🌐 {t.select_lang}</label>
+              <select
+                id="lang-select"
+                className="select-input"
+                value={currentLang}
+                onChange={(e) => changeLanguage(e.target.value)}
+              >
+                <option value="en">English</option>
+                <option value="hi">हिन्दी (Hindi)</option>
+                <option value="te">తెలుగు (Telugu)</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="username">{t.username}</label>
+              <input
+                id="username"
+                type="text"
+                className="text-input"
+                placeholder={t.username}
+                required
+                disabled
+                value="teacher_ramesh"
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="password">{t.password}</label>
+              <input
+                id="password"
+                type="password"
+                className="text-input"
+                placeholder="••••••••"
+                required
+                disabled
+                value="password123"
+              />
+            </div>
+
+            <p className="form-note">{t.enter_details}</p>
+
+            <button type="submit" className="btn btn-primary btn-block">
+              🔑 {t.login_btn}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // Render Dashboard
   return (
     <div className="app-container">
       {/* Header Bar */}
       <header className="app-header">
         <div className="logo-group">
           <span className="logo-icon">🏫</span>
-          <h1>GramSchool Flow</h1>
+          <h1>{t.title}</h1>
         </div>
-        <div className={`network-badge ${isOnline ? 'online' : 'offline'}`}>
-          <span className="badge-dot"></span>
-          {isOnline ? 'Online (System Connected)' : 'Offline Mode (Local Cache)'}
+        <div className="header-actions">
+          <button className="btn-logout" onClick={() => setIsLoggedIn(false)}>
+            🚪 Logout
+          </button>
+          <div className={`network-badge ${isOnline ? 'online' : 'offline'}`}>
+            <span className="badge-dot"></span>
+            {isOnline ? 'Online (System Connected)' : 'Offline Mode (Local Cache)'}
+          </div>
         </div>
       </header>
 
