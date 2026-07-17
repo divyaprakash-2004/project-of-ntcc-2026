@@ -1,0 +1,146 @@
+{
+  "name": "Weekly Lesson Plan Generator Flow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "8482bf4e-b5f7-4148-9366-22bf12cf8883",
+      "name": "Cron Weekly Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const today = new Date();\n// Calculate days until next Monday (Monday is index 1)\nconst daysUntilMonday = (1 - today.getDay() + 7) % 7 || 7;\nconst nextMonday = new Date(today);\nnextMonday.setDate(today.getDate() + daysUntilMonday);\n\nconst yyyy = nextMonday.getFullYear();\nconst mm = String(nextMonday.getMonth() + 1).padStart(2, '0');\nconst dd = String(nextMonday.getDate()).padStart(2, '0');\nconst startDate = `${yyyy}-${mm}-${dd}`;\n\nreturn [{ json: { startDate } }];"
+      },
+      "id": "e963ee8d-4e9b-4e1b-ac37-ef866eb85fe9",
+      "name": "Calculate Upcoming Monday Date",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5000/api/teachers",
+        "options": {}
+      },
+      "id": "f516a5ef-e64e-4f18-ad42-83b3e218de38",
+      "name": "Fetch Active Teacher List",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "28169fe5-c54d-4ac2-ac32-bd8decfd1c44",
+      "name": "Loop Through Teachers",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5000/api/schedules/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"teacherId\": \"{{ $json.value }}\",\n  \"startDate\": \"{{ $('Calculate Upcoming Monday Date').item.json.startDate }}\"\n}",
+        "options": {}
+      },
+      "id": "c16fa5ef-4eb9-40e9-b68e-908be2bf8de0",
+      "name": "Trigger Schedule Generator API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1020,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Cron Weekly Trigger": {
+      "main": [
+        [
+          {
+            "node": "Calculate Upcoming Monday Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Upcoming Monday Date": {
+      "main": [
+        [
+          {
+            "node": "Fetch Active Teacher List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Active Teacher List": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Teachers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Through Teachers": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Trigger Schedule Generator API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Schedule Generator API": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Teachers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

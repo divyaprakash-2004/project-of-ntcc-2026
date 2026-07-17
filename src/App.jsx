@@ -46,7 +46,102 @@ function App() {
   const [lessons, setLessons] = useState([]);
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [syncStatus, setSyncStatus] = useState(navigator.onLine ? 'idle' : 'offline');
   const [syncMessage, setSyncMessage] = useState('Local database initialized.');
+
+  // Feedback states
+  const [fbRating, setFbRating] = useState(3);
+  const [fbNotes, setFbNotes] = useState('');
+  const [isEditingFeedback, setIsEditingFeedback] = useState(false);
+
+  useEffect(() => {
+    if (selectedLesson) {
+      setFbRating(selectedLesson.feedback?.engagementRating || 3);
+      setFbNotes(selectedLesson.feedback?.classroomNotes || '');
+      setIsEditingFeedback(false);
+    }
+  }, [selectedLesson?.id]);
+
+  const handleFeedbackSubmit = (e) => {
+    e.preventDefault();
+    if (!selectedLesson) return;
+
+    const updatedFeedback = {
+      engagementRating: Number(fbRating),
+      classroomNotes: fbNotes,
+      feedbackSubmittedAt: Date.now()
+    };
+
+    const updatedLesson = {
+      ...selectedLesson,
+      feedback: updatedFeedback,
+      syncStatus: 'pending_update',
+      lastUpdated: Date.now()
+    };
+
+    saveLesson(updatedLesson)
+      .then(() => {
+        setSyncMessage(`Feedback submitted for: "${selectedLesson.title}".`);
+        setIsEditingFeedback(false);
+        refreshLessons();
+        if (navigator.onLine) {
+          getLessons().then((allLessons) => {
+            triggerSync(allLessons);
+          });
+        }
+      })
+      .catch((err) => {
+        console.error('Error saving feedback:', err);
+        setSyncMessage('Failed to save feedback.');
+      });
+  };
+
+  // Trigger automatic synchronization of offline data to MongoDB
+  const triggerSync = (localLessons) => {
+    if (!navigator.onLine) {
+      setSyncStatus('offline');
+      return Promise.resolve();
+    }
+
+    const unsynced = localLessons.filter(l => l.syncStatus === 'pending_update');
+    if (unsynced.length === 0) {
+      return Promise.resolve();
+    }
+
+    setSyncStatus('syncing');
+    setSyncMessage('Syncing local classroom milestones to MongoDB...');
+
+    return fetch('http://localhost:5000/api/lessons/sync', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ lessons: unsynced })
+    })
+    .then((res) => {
+      if (!res.ok) throw new Error('Sync failed on server');
+      return res.json();
+    })
+    .then((data) => {
+      // Mark as synced locally
+      const markedSynced = unsynced.map(l => ({ ...l, syncStatus: 'synced' }));
+      return saveLessonsBulk(markedSynced);
+    })
+    .then(() => {
+      setSyncStatus('success');
+      setSyncMessage('Sync completed! All classroom logs are backed up.');
+      refreshLessons();
+      // Clear success banner after 3 seconds
+      setTimeout(() => {
+        setSyncStatus('idle');
+      }, 3000);
+    })
+    .catch((err) => {
+      console.error('Automatic sync error:', err);
+      setSyncStatus('idle');
+      setSyncMessage('Sync failed. Changes remain cached locally.');
+    });
+  };
 
   const refreshLessons = () => {
     getLessons()
@@ -65,8 +160,23 @@ function App() {
   };
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const handleOnline = () => {
+      setIsOnline(true);
+      getLessons().then((allLessons) => {
+        const unsynced = allLessons.filter(l => l.syncStatus === 'pending_update');
+        if (unsynced.length > 0) {
+          triggerSync(allLessons);
+        } else {
+          setSyncStatus('success');
+          setTimeout(() => setSyncStatus('idle'), 2000);
+        }
+      });
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setSyncStatus('offline');
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -124,7 +234,13 @@ function App() {
     saveLesson(updatedLesson)
       .then(() => {
         setSyncMessage(`Progress updated offline for: "${lesson.title}".`);
-        refreshLessons();
+        if (navigator.onLine) {
+          getLessons().then((allLessons) => {
+            triggerSync(allLessons);
+          });
+        } else {
+          refreshLessons();
+        }
       })
       .catch((err) => {
         console.error(err);
@@ -158,14 +274,14 @@ function App() {
         <div className="login-card">
           <div className="login-header">
             <span className="logo-emoji">🏫</span>
-            <h2>{t.title}</h2>
-            <p className="subtitle">{t.welcome}</p>
+            <h2>{t('title')}</h2>
+            <p className="subtitle">{t('welcome')}</p>
           </div>
 
           <form onSubmit={handleLoginSubmit} className="login-form">
             {/* Language Selector Dropdown (AC 1) */}
             <div className="form-group lang-select-group">
-              <label htmlFor="lang-select">🌐 {t.select_lang}</label>
+              <label htmlFor="lang-select">🌐 {t('select_lang')}</label>
               <select
                 id="lang-select"
                 className="select-input"
@@ -179,12 +295,12 @@ function App() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="username">{t.username}</label>
+              <label htmlFor="username">{t('username')}</label>
               <input
                 id="username"
                 type="text"
                 className="text-input"
-                placeholder={t.username}
+                placeholder={t('username')}
                 required
                 disabled
                 value="teacher_ramesh"
@@ -192,7 +308,7 @@ function App() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="password">{t.password}</label>
+              <label htmlFor="password">{t('password')}</label>
               <input
                 id="password"
                 type="password"
@@ -204,10 +320,10 @@ function App() {
               />
             </div>
 
-            <p className="form-note">{t.enter_details}</p>
+            <p className="form-note">{t('enter_details')}</p>
 
             <button type="submit" className="btn btn-primary btn-block">
-              🔑 {t.login_btn}
+              🔑 {t('login_btn')}
             </button>
           </form>
         </div>
@@ -218,11 +334,42 @@ function App() {
   // Render Dashboard
   return (
     <div className="app-container">
+      {/* Localized Sync Status Banner with Dynamic States (Offline, Syncing, Success) */}
+      {syncStatus !== 'idle' && (
+        <div className={`offline-sync-banner ${syncStatus}`}>
+          <span className="banner-icon">
+            {syncStatus === 'offline' && '⚠️'}
+            {syncStatus === 'syncing' && '🔄'}
+            {syncStatus === 'success' && '✅'}
+          </span>
+          <div className="banner-content">
+            {syncStatus === 'offline' && (
+              <>
+                <strong>{t('sync_offline_title')}: </strong>
+                {t('sync_offline_body')}
+              </>
+            )}
+            {syncStatus === 'syncing' && (
+              <>
+                <strong>{t('sync_syncing_title')}: </strong>
+                {t('sync_syncing_body')}
+              </>
+            )}
+            {syncStatus === 'success' && (
+              <>
+                <strong>{t('sync_success_title')}: </strong>
+                {t('sync_success_body')}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header Bar */}
       <header className="app-header">
         <div className="logo-group">
           <span className="logo-icon">🏫</span>
-          <h1>{t.title}</h1>
+          <h1>{t('title')}</h1>
         </div>
         <div className="header-actions">
           <button className="btn-logout" onClick={() => setIsLoggedIn(false)}>
@@ -296,6 +443,27 @@ function App() {
 
         {/* Content: Selected Lesson Details & Checklist */}
         <section className="content-panel">
+          {/* Mobile Lesson Selector Dropdown (AC 1) */}
+          <div className="mobile-lesson-selector">
+            <label htmlFor="lesson-dropdown">📖 {t('select_lesson_label')}:</label>
+            <select
+              id="lesson-dropdown"
+              className="select-input"
+              value={selectedLesson?.id || ''}
+              onChange={(e) => {
+                const found = lessons.find(l => l.id === e.target.value);
+                setSelectedLesson(found || null);
+              }}
+            >
+              <option value="" disabled>{t('select_lesson_placeholder')}</option>
+              {lessons.map((lesson) => (
+                <option key={lesson.id} value={lesson.id}>
+                  {lesson.grade} | {lesson.subject} | {lesson.title} ({lesson.scheduledDate})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {selectedLesson ? (
             <div className="lesson-details">
               <div className="details-header">
@@ -330,6 +498,78 @@ function App() {
                       </span>
                     </label>
                   ))}
+                </div>
+
+                {/* Multilingual Classroom Feedback Section (AC 1 & AC 2) */}
+                <div className="feedback-section">
+                  {selectedLesson.feedback && !isEditingFeedback ? (
+                    // Read-only History Summary Mode
+                    <div className="feedback-history-card">
+                      <h3>📝 {t('fb_view_submitted')}</h3>
+                      <div className="summary-details">
+                        <div className="summary-field">
+                          <strong>{t('fb_rating_label')}: </strong>
+                          <span className="stars-indicator">
+                            {'★'.repeat(selectedLesson.feedback.engagementRating)}
+                            {'☆'.repeat(5 - selectedLesson.feedback.engagementRating)}
+                          </span>
+                        </div>
+                        <div className="summary-field notes-display">
+                          <strong>{t('fb_notes_label')}:</strong>
+                          <p className="submitted-notes">{selectedLesson.feedback.classroomNotes || 'N/A'}</p>
+                        </div>
+                        <div className="feedback-meta">
+                          <span>📅 {new Date(selectedLesson.feedback.feedbackSubmittedAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <button 
+                        type="button" 
+                        className="btn btn-secondary btn-edit-fb" 
+                        onClick={() => setIsEditingFeedback(true)}
+                      >
+                        ✏️ Edit Feedback
+                      </button>
+                    </div>
+                  ) : (
+                    // Interactive Submission Form Mode
+                    <>
+                      <h3>📝 {t('fb_title')}</h3>
+                      <form onSubmit={handleFeedbackSubmit} className="feedback-form">
+                        <div className="feedback-group">
+                          <label className="feedback-label">{t('fb_rating_label')}:</label>
+                          <div className="rating-selector">
+                            {[1, 2, 3, 4, 5].map((val) => (
+                              <button
+                                key={val}
+                                type="button"
+                                className={`rating-chip ${fbRating === val ? 'active' : ''}`}
+                                onClick={() => setFbRating(val)}
+                              >
+                                ⭐ {val}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="feedback-group">
+                          <label htmlFor="fb-notes" className="feedback-label">{t('fb_notes_label')}:</label>
+                          <textarea
+                            id="fb-notes"
+                            className="textarea-input"
+                            rows="3"
+                            maxLength="500"
+                            placeholder={t('fb_notes_placeholder')}
+                            value={fbNotes}
+                            onChange={(e) => setFbNotes(e.target.value)}
+                          />
+                        </div>
+
+                        <button type="submit" className="btn btn-primary btn-submit-feedback">
+                          📤 {t('fb_submit_btn')}
+                        </button>
+                      </form>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

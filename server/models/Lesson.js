@@ -7,6 +7,12 @@ const MilestoneSchema = new mongoose.Schema({
   isCompleted: { type: Boolean, default: false }
 });
 
+const FeedbackSchema = new mongoose.Schema({
+  engagementRating: { type: Number, min: 1, max: 5, required: true },
+  classroomNotes: { type: String, maxlength: 1000 },
+  feedbackSubmittedAt: { type: Number, required: true }
+});
+
 const LessonPlanSchema = new mongoose.Schema({
   // Unique client-side generated ID mapped to MongoDB _id key (enforces AC 3)
   _id: { type: String, required: true },
@@ -23,6 +29,7 @@ const LessonPlanSchema = new mongoose.Schema({
     default: 'planned' 
   },
   milestones: [MilestoneSchema],
+  feedback: { type: FeedbackSchema, default: null },
   lastUpdated: { type: Number, required: true }
 }, {
   timestamps: true,
